@@ -35,6 +35,9 @@ use smithay::{
 
 use crate::{grabs::ResizeEdge, state::Glove};
 
+/// Atraso (ms) para a barra de menu descer num app de RDP, para não aparecer antes da floatbar.
+pub const RDP_BAR_DELAY_MS: u64 = 3000;
+
 /// Largura da borda invisível para redimensionar.
 const RESIZE_BORDER: i32 = 6;
 /// A este tanto de um canto, a borda redimensiona na diagonal.
@@ -830,7 +833,7 @@ impl Glove {
                 self.chrome.peek_anim = Some((self.chrome.peek, to, std::time::Instant::now()));
             }
         }
-        let Some(w) = self.space.elements().last().filter(|w| is_fullscreen(w)).cloned() else { return };
+        let Some(w) = self.fullscreen_window() else { return };
         let Some(geo) = self.space.element_geometry(&w) else { return };
         let center: Point<f64, Logical> = ((geo.loc.x + geo.size.w / 2) as f64, (geo.loc.y + geo.size.h / 2) as f64).into();
         let Some(out) = self.output_rect_at(center) else { return };
@@ -865,13 +868,63 @@ impl Glove {
             t.with_pending_state(|s| s.size = Some(rect.size));
             t.send_pending_configure();
         }
+        let floating = self.floating_over_fullscreen();
         self.space.map_element(w, rect.loc, false);
+        // O map_element leva a janela para o topo: as flutuantes voltam por cima dela
+        // (da mais de baixo para a mais de cima).
+        for f in floating.iter().rev() {
+            self.space.raise_element(f, false);
+        }
         self.dirty = true;
     }
 
     /// A janela de cima está em tela cheia (com ou sem a barra espiando).
     pub fn fullscreen_top(&self) -> bool {
-        self.space.elements().last().is_some_and(is_fullscreen) && self.expose.is_none()
+        self.fullscreen_window().is_some() && self.expose.is_none()
+    }
+
+    /// A janela em tela cheia mais alta. Janelas flutuantes por cima dela (a floatbar
+    /// do xfreerdp, por exemplo) não tiram a tela cheia de cena.
+    pub fn fullscreen_window(&self) -> Option<Window> {
+        self.space.elements().rev().find(|w| is_fullscreen(w)).cloned()
+    }
+
+    /// A janela em tela cheia é do xfreerdp (ou outro cliente FreeRDP): a floatbar dele
+    /// aparece com um pequeno atraso.
+    pub fn rdp_fullscreen(&self) -> bool {
+        self.fullscreen_window().is_some_and(|w| window_info(&w).1.to_lowercase().contains("freerdp"))
+    }
+
+    /// Mostra a barra de menu daqui a pouco (só para apps de RDP): a floatbar leva um
+    /// instante para aparecer, e a barra não pode descer antes dela. Se o mouse sair
+    /// antes, o aviso de `bar_peek` já foi desligado e nada acontece.
+    pub fn schedule_bar_peek(&mut self) {
+        if self.bar_peek_pending {
+            return;
+        }
+        self.bar_peek_pending = true;
+        let _ = self.loop_handle.insert_source(
+            smithay::reexports::calloop::timer::Timer::from_duration(std::time::Duration::from_millis(RDP_BAR_DELAY_MS)),
+            |_, _, data| {
+                let st = &mut data.state;
+                st.bar_peek_pending = false;
+                if st.bar_peek && st.fullscreen_top() {
+                    st.fullscreen_peek(true);
+                    st.dirty = true;
+                }
+                smithay::reexports::calloop::timer::TimeoutAction::Drop
+            },
+        );
+    }
+
+    /// Janelas por cima da tela cheia, da frente para trás. Elas ficam acima da barra de menu.
+    pub fn floating_over_fullscreen(&self) -> Vec<Window> {
+        if self.expose.is_some() || self.lock.is_some() {
+            return Vec::new();
+        }
+        let elems: Vec<Window> = self.space.elements().cloned().collect();
+        let Some(i) = elems.iter().rposition(is_fullscreen) else { return Vec::new() };
+        elems[i + 1..].iter().rev().cloned().collect()
     }
 
     /// Entra ou sai da tela cheia (atalho, menu Janela ou pedido do app).

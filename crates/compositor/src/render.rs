@@ -520,6 +520,26 @@ impl Glove {
                 out.extend(mem(renderer, (fq.origin.x - m, fq.origin.y - m).into(), t, sc));
             }
         }
+        // Janelas flutuantes por cima da tela cheia (a floatbar do xfreerdp) ficam acima da barra.
+        let floating = self.floating_over_fullscreen();
+        for w in &floating {
+            if self.min_animating(w) {
+                continue;
+            }
+            let Some(loc) = self.space.element_location(w) else { continue };
+            let render_loc = loc - w.geometry().loc;
+            out.extend(w.render_elements::<GloveElement>(renderer, render_loc.to_physical_precise_round(sc), Scale::from(sc), 1.0));
+            if let Some(deco) = w.user_data().get::<RefCell<Deco>>() {
+                let d = deco.borrow();
+                let top = (loc.x, loc.y - TITLE_H);
+                if let Some(t) = &d.title {
+                    out.extend(mem(renderer, top.into(), t, sc));
+                }
+                for (sx, sy, s) in &d.shadows {
+                    out.extend(mem(renderer, (top.0 + sx, top.1 + sy).into(), s, sc));
+                }
+            }
+        }
         let covered = self.fullscreen_cover();
         if let Some(b) = c.menubar.as_ref().filter(|_| !covered) {
             // Em tela cheia, a barra desce do alto (e sobe ao sair).
@@ -571,7 +591,7 @@ impl Glove {
         let incoming = self.space.elements().rev().filter_map(|w| self.space.element_location(w).map(|l| (w, l + Point::from((dx_in, 0)))));
         for (w, loc) in incoming.collect::<Vec<_>>().into_iter().chain(outgoing) {
             // Voltando do Dock: desenhada pela animação, acima.
-            if self.min_animating(w) {
+            if self.min_animating(w) || floating.contains(w) {
                 continue;
             }
             let render_loc = loc - w.geometry().loc;

@@ -144,6 +144,8 @@ pub struct Glove {
     pub papel: crate::papel::Papel,
     /// Tela cheia: o mouse encostou no alto e a barra de menu apareceu.
     pub bar_peek: bool,
+    /// Um atraso para mostrar a barra (apps de RDP) está correndo.
+    pub bar_peek_pending: bool,
     /// A central de controle aberta.
     pub control: Option<crate::controle::ControlPanel>,
     /// Gesto do touchpad em andamento.
@@ -293,6 +295,7 @@ impl Glove {
             grade: Default::default(),
             papel: Default::default(),
             bar_peek: false,
+            bar_peek_pending: false,
             control: None,
             gesto: None,
             avisos: Default::default(),
