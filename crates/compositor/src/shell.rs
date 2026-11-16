@@ -21,7 +21,7 @@ use smithay::{
             gles::{GlesRenderer, GlesTexture},
         },
     },
-    desktop::{Window, WindowSurfaceType},
+    desktop::{PopupKind, PopupManager, Window, WindowSurfaceType},
     reexports::{
         wayland_protocols::xdg::{
             decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as DecoMode,
@@ -872,6 +872,26 @@ impl Glove {
     /// A janela de cima está em tela cheia (com ou sem a barra espiando).
     pub fn fullscreen_top(&self) -> bool {
         self.space.elements().last().is_some_and(is_fullscreen) && self.expose.is_none()
+    }
+
+    /// Ao começar a arrastar ou redimensionar uma janela, os menus e popups abertos saem de cena
+    /// (como em qualquer gerenciador de janelas). Popups xdg recebem `popup_done` do protocolo.
+    /// Menus X11 (override-redirect) não podem ser desmapeados nem movidos pelo WM, então deixam
+    /// de ser desenhados e de receber o mouse; o app os fecha por conta própria quando precisar.
+    pub fn dismiss_menus_for_move(&mut self, window: &Window) {
+        if let Some(surface) = window.toplevel().map(|t| t.wl_surface().clone()) {
+            let popups: Vec<PopupKind> = PopupManager::popups_for_surface(&surface).map(|(p, _)| p).collect();
+            for popup in popups {
+                if let PopupKind::Xdg(ref xdg) = popup {
+                    xdg.send_popup_done();
+                }
+                let _ = PopupManager::dismiss_popup(&surface, &popup);
+            }
+        }
+        if !self.x11_overlays.is_empty() {
+            self.x11_overlays.clear();
+            self.dirty = true;
+        }
     }
 
     /// Entra ou sai da tela cheia (atalho, menu Janela ou pedido do app).
