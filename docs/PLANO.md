@@ -2081,10 +2081,11 @@ Editor), não o Dock. A ordem passou a ser esta:
   entra. A tabela do kit (Arquivos, Preferências, Música, Correio…) usa. No Arquivos, as linhas
   da lista ficam prontas (refeitas só quando a pasta, a ordem ou as opções mudam). Rolar o
   Arquivos: ~10,3 → ~5,4 ms por quadro.
-- [ ] 27.3 A placa rola os blocos: cada bloco vira textura numa subsuperfície (`wl_subsurface` +
+- [x] 27.3 Editor: o cálculo do documento inteiro só quando algo muda (parado: ~13 → ~0,5 ms
+  por quadro) e o texto na camada em blocos de 128 px, com o cursor por cima (rolar: ~10,7 →
+  ~6,3 ms por quadro).
+- [ ] 27.4 A placa rola os blocos: cada bloco vira textura numa subsuperfície (`wl_subsurface` +
   `wp_viewporter`) e rolar só muda a posição; o app não repinta nem reenvia a área.
-- [ ] 27.4 Editor: o cálculo do desenho a cada quadro (2–13 ms parado) e a rolagem com a
-  camada retida.
 - [ ] 27.5 Motor de pintura pela placa no glove-paint: o mesmo `Canvas` com um segundo motor
   (OpenGL ES 3 por EGL), atlas de glifos das fontes do Glove, imagens como texturas. Os apps não
   mudam.

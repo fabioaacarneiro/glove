@@ -52,3 +52,28 @@ etapa tira: a placa rolar os blocos sozinha.
 | window_drag | 14 | 0.27 / 0.34 / 0.34 | 0.35 / 0.41 | glove.TextEditor | 15 | 3.84 / 6.53 / 6.53 | 23552 |
 | viewer_zoom | 0 | 0.00 / 0.00 / 0.00 | 0.00 / 0.00 | glove.Viewer | 10 | 4.05 / 4.64 / 4.64 | 0 |
 | expose | 25 | 0.33 / 0.58 / 3.98 | 19.22 / 45.81 | — | | | |
+
+## Depois da etapa 27.3 (Editor)
+
+- O Editor parado ou recebendo eventos sem mudança: de até 13 ms para ~0,5 ms por quadro (o
+  cálculo do documento inteiro só roda quando o documento, a largura ou o modo página mudam).
+- Rolar o Editor: de ~10,7 ms para ~6,3 ms por quadro (p95 de 13,6 para 7,8 ms): o texto fica
+  em blocos de 128 px já pintados; digitar repinta só os blocos do parágrafo que mudou; o
+  cursor fica por cima, fora da camada.
+- O que sobra em rolar (o repasse que repinta a área, ~3,5 ms, e o envio, ~1,4 ms) sai na etapa
+  em que a placa rola os blocos.
+
+### Auditoria 27.3: Editor (cálculo só quando muda + texto na camada em blocos)
+
+| Cenário | Compositor: quadros | preparar (CPU) média / p95 / pior ms | desenhar média / pior ms | App | quadros | pintar (CPU) média / p95 / pior ms | px por quadro |
+|---|---|---|---|---|---|---|---|
+| idle | 0 | 0.00 / 0.00 / 0.00 | 0.00 / 0.00 | — | | | |
+| dock_hover | 70 | 0.97 / 2.01 / 4.43 | 1.27 / 2.68 | — | | | |
+| menus | 4 | 3.10 / 5.16 / 5.16 | 1.67 / 1.88 | glove.Files | 1 | 1.03 / 1.03 / 1.03 | 0 |
+| files_scroll | 32 | 0.21 / 0.33 / 0.36 | 0.48 / 0.60 | glove.Files | 33 | 4.32 / 5.47 / 6.70 | 264145 |
+| editor_scroll | 22 | 0.25 / 0.29 / 0.30 | 0.62 / 0.73 | glove.TextEditor | 23 | 6.33 / 7.83 / 8.49 | 431812 |
+|  |  |  |  | glove.Files | 1 | 2.19 / 2.19 / 2.19 | 0 |
+| editor_type | 4 | 0.41 / 0.98 / 0.98 | 0.44 / 0.59 | glove.TextEditor | 4 | 6.14 / 11.60 / 11.60 | 181599 |
+| window_drag | 14 | 0.27 / 0.33 / 0.33 | 0.51 / 0.65 | glove.TextEditor | 15 | 3.03 / 5.78 / 5.78 | 102169 |
+| viewer_zoom | 0 | 0.00 / 0.00 / 0.00 | 0.00 / 0.00 | glove.Viewer | 10 | 3.61 / 4.84 / 4.84 | 0 |
+| expose | 21 | 0.28 / 0.30 / 1.93 | 21.79 / 54.94 | — | | | |

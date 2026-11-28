@@ -129,6 +129,8 @@ pub struct DocView {
     pub layout_pending: bool,
     /// Never estimate (PDF export: every line must be real).
     pub exact_only: bool,
+    /// The key of the last `ensure` that did its work (see there).
+    ensured: Option<u64>,
 }
 
 /// Uma imagem do documento já aberta.
@@ -173,7 +175,7 @@ pub struct Caret {
 
 impl DocView {
     pub fn new() -> Self {
-        Self { scroll: 0.0, hscroll: 0.0, doc_w: 0.0, zoom: 1.0, cache: HashMap::new(), page_mode: false, fit_width: false, lys: Vec::new(), total: 0.0, width: 0.0, col_x: MARGIN_X, page: PageSetup::default(), pages: 1, page_x: GAP, nums: NoteNums::new(), note_lays: HashMap::new(), page_notes: Vec::new(), endnotes: Vec::new(), header: HeaderFooter::default(), footer: HeaderFooter::default(), title_page: false, page_num: Default::default(), base_family: String::new(), title: String::new(), date: today(), edit_note: None, edit_hf: None, edit_toc: false, labels: Vec::new(), para_page: Vec::new(), para_x: Vec::new(), para_w: Vec::new(), tables: Vec::new(), col_drag: None, reveal: false, want_x: None, dragging: false, last_click: None, pasting: false, pics: Default::default(), img_drag: None, origin: (0.0, 0.0), view_h: 800.0, layout_pending: false, exact_only: false }
+        Self { scroll: 0.0, hscroll: 0.0, doc_w: 0.0, zoom: 1.0, cache: HashMap::new(), page_mode: false, fit_width: false, lys: Vec::new(), total: 0.0, width: 0.0, col_x: MARGIN_X, page: PageSetup::default(), pages: 1, page_x: GAP, nums: NoteNums::new(), note_lays: HashMap::new(), page_notes: Vec::new(), endnotes: Vec::new(), header: HeaderFooter::default(), footer: HeaderFooter::default(), title_page: false, page_num: Default::default(), base_family: String::new(), title: String::new(), date: today(), edit_note: None, edit_hf: None, edit_toc: false, labels: Vec::new(), para_page: Vec::new(), para_x: Vec::new(), para_w: Vec::new(), tables: Vec::new(), col_drag: None, reveal: false, want_x: None, dragging: false, last_click: None, pasting: false, pics: Default::default(), img_drag: None, origin: (0.0, 0.0), view_h: 800.0, layout_pending: false, exact_only: false, ensured: None }
     }
 
     fn lay<'a>(&'a self, p: &Para) -> &'a ParaLayout {
@@ -188,6 +190,20 @@ impl DocView {
     /// Diagrama o que mudou e põe cada linha no lugar (numa coluna ou em folhas).
     /// `area_w` = largura da área em pontos.
     fn ensure(&mut self, doc: &Doc, fb: &FontBook, area_w: f32) {
+        // Nothing it depends on changed (the document, the width, the page view): the
+        // lines are where they were. Going over the whole document on every frame (all the
+        // paragraphs, lists, tables and the place of every line) took most of a frame.
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (doc.version, area_w.to_bits(), self.page_mode, self.exact_only, doc.paras.len(), doc.title_page).hash(&mut h);
+            format!("{:?}{:?}{:?}{:?}", doc.page, doc.header, doc.footer, doc.page_num).hash(&mut h);
+            h.finish()
+        };
+        if !self.layout_pending && self.ensured == Some(key) {
+            return;
+        }
+        self.ensured = Some(key);
         self.page = doc.page.clone();
         self.header = doc.header.clone();
         self.footer = doc.footer.clone();
@@ -921,10 +937,79 @@ impl DocView {
         let hscroll = self.hscroll;
         let me = &*self;
         let docr = &*doc;
-        ui.clipped(0xd0c_u64, inner, |c, _| {
-            me.draw(c, docr, fb, (hscroll, scroll), inner.w, inner.h, active, show_caret);
+        // The text in a retained layer of tiles (PLANO, Fase 27): scrolling copies the
+        // tiles already painted and paints only the one coming in; typing repaints only the
+        // tiles of the paragraph that changed. The caret goes on top, outside the layer (its
+        // blinking does not repaint the text).
+        let z = me.zoom;
+        let base = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (z.to_bits(), hscroll.to_bits(), me.col_x.to_bits(), me.page_x.to_bits(), inner.w.to_bits(), active, me.page_mode, me.pages, glove_ui::paint::theme::dark()).hash(&mut h);
+            // In page view, what goes on the pages (headers, notes, numbers) follows the
+            // whole document.
+            if me.page_mode {
+                docr.version.hash(&mut h);
+            }
+            for t in &me.tables {
+                (t.id, t.first, t.end, t.rows.len()).hash(&mut h);
+                for b in &t.bounds {
+                    b.to_bits().hash(&mut h);
+                }
+                for (top, rh, _) in &t.rows {
+                    (top.to_bits(), rh.to_bits()).hash(&mut h);
+                }
+            }
+            for (id, (text, _, _, _)) in &me.note_lays {
+                (id, text).hash(&mut h);
+            }
+            h.finish()
+        };
+        let (sel_a, sel_b) = docr.selection();
+        let has_sel = docr.has_selection();
+        let content_key = |top: f32, h: f32| {
+            use std::hash::{Hash, Hasher};
+            let mut k = std::collections::hash_map::DefaultHasher::new();
+            base.hash(&mut k);
+            let first = me.lys.partition_point(|ys| ys.first().is_some_and(|&t| t * z - top < 0.0)).saturating_sub(1);
+            for pi in first..docr.paras.len().min(me.lys.len()) {
+                let ys = &me.lys[pi];
+                if ys.first().is_some_and(|&t| t * z - top > h) {
+                    break;
+                }
+                let p = &docr.paras[pi];
+                (p.id, p.ver, ys.first().map(|y| y.to_bits()), me.para_x.get(pi).map(|v| v.to_bits()), me.para_w.get(pi).map(|v| v.to_bits()), me.labels.get(pi)).hash(&mut k);
+                if has_sel && pi >= sel_a.p && pi <= sel_b.p {
+                    ((sel_a.p == pi).then_some(sel_a.o), (sel_b.p == pi).then_some(sel_b.o)).hash(&mut k);
+                }
+            }
+            k.finish()
+        };
+        ui.scroll_layer(0xd0c_u64, inner, scroll, me.content_h().max(inner.h), 128, content_key, |c: &mut Canvas, _: &glove_ui::paint::Fonts, top: f32, h: f32| {
+            me.draw(c, docr, fb, (hscroll, top), inner.w, h, active, false);
         });
+        if show_caret && !has_sel {
+            if let Some((x, y, h)) = me.caret_rect(docr, fb, (hscroll, scroll)) {
+                if y + h > 0.0 && y < inner.h {
+                    let s = ui.c.scale;
+                    let old = ui.c.clip();
+                    ui.c.set_clip(Some([(inner.x * s).floor() as i32, (inner.y * s).floor() as i32, ((inner.x + inner.w) * s).ceil() as i32, ((inner.y + inner.h) * s).ceil() as i32]));
+                    ui.c.fill_rect(inner.x + x, inner.y + y, 1.0, h, &solid(rgba(0, 0, 0, if active { 255 } else { 120 })));
+                    ui.c.set_clip(old);
+                }
+            }
+        }
         changed
+    }
+
+    /// Where the caret is drawn (relative to the view: x, y, height).
+    fn caret_rect(&self, doc: &Doc, fb: &FontBook, (hscroll, scroll): (f32, f32)) -> Option<(f32, f32, f32)> {
+        let z = self.zoom;
+        let cpos = self.caret(doc, fb, doc.cursor);
+        let p = doc.paras.get(doc.cursor.p)?;
+        let l = self.lay(p);
+        let ln = l.lines.get(line_of(l, doc.cursor.o))?;
+        Some(((cpos.x * z - hscroll).round(), cpos.y * z - scroll, ln.text_h * z))
     }
 
     fn keyboard(&mut self, ui: &mut Ui, doc: &mut Doc, fb: &FontBook, inner: Rect) {
