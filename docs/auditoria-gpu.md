@@ -105,3 +105,9 @@ placa. O app quase não pinta nem envia nada ao rolar (~400 px por quadro, a bar
 | window_drag | 16 | 0.30 / 0.37 / 0.37 | 0.66 / 0.83 | glove.TextEditor | 16 | 2.90 / 4.35 / 4.35 | 6386 |
 | viewer_zoom | 0 | 0.00 / 0.00 / 0.00 | 0.00 / 0.00 | glove.Viewer | 10 | 2.61 / 3.12 / 3.12 | 0 |
 | expose | 21 | 0.27 / 0.33 / 1.90 | 23.58 / 54.65 | — | | | |
+
+## Sombras dos menus prontas (primeiro passo da 27.7)
+
+Abrir menus pela barra: o compositor preparava cada menu em ~3,5–5 ms (pior ~9 ms), quase tudo
+desfocando a sombra, de novo a cada item sob o mouse. Com as sombras guardadas: ~2,5 ms (pior
+~3,8 ms).

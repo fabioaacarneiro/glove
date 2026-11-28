@@ -2093,8 +2093,10 @@ Editor), não o Dock. A ordem passou a ser esta:
   mudam.
 - [ ] 27.6 Superfície dos apps pela placa: EGL (`wayland-egl`) no lugar do `wl_shm`, dano pela
   idade do buffer.
-- [ ] 27.7 Peças do compositor como cena da placa: menus (3–9 ms ao abrir), barra, títulos e
-  painéis desenhados no GLES do compositor; o Dock por último (já é barato).
+- [ ] 27.7 Peças do compositor como cena da placa: menus, barra, títulos e painéis desenhados no
+  GLES do compositor; o Dock por último (já é barato).
+  - [x] Primeiro passo: as sombras dos menus e da Busca Rápida ficam prontas (eram desfocadas de
+    novo a cada item sob o mouse): abrir menus ~3,5–5 → ~2,5 ms, pior caso ~9 → ~3,8 ms.
 - [ ] 27.8 Reserva pela CPU: sem GLES 3.0, kit e compositor voltam sozinhos ao desenho pelo
   processador; uma opção nas Preferências força a reserva.
 - [ ] 27.9 Medir na máquina real (memória por app, bateria, fluidez) e ajustar.
