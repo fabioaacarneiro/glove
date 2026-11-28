@@ -2088,9 +2088,21 @@ Editor), não o Dock. A ordem passou a ser esta:
   `wp_viewporter`) embaixo da janela, que deixa um buraco transparente; rolar só muda a posição e
   o recorte (rolar o Arquivos ~10,3 → ~2,6 ms; o Editor ~11,4 → ~2,9 ms por quadro). Na escala
   fracionária cada bloco termina onde o próximo começa (sem frestas).
-- [ ] 27.5 Motor de pintura pela placa no glove-paint: o mesmo `Canvas` com um segundo motor
-  (OpenGL ES 3 por EGL), atlas de glifos das fontes do Glove, imagens como texturas. Os apps não
-  mudam.
+- [ ] 27.5 Pintura dos blocos pela placa. Medição de 28/11 (depois das etapas 27.1–27.4): um
+  quadro de rolagem custa ~2,5–5 ms, dos quais ~1,4–3,2 ms pintando os blocos que entram e o resto
+  na lógica da interface; digitar no Editor ~4–6 ms (repintar o bloco do parágrafo ~1,3–1,8 ms,
+  o cálculo do documento ~0,65 ms, a lógica da interface ~2 ms em duas passadas). Tudo já fica bem
+  abaixo dos 16,6 ms de uma tela de 60 Hz. O ganho desta etapa é a pintura dos blocos:
+  - [ ] 27.5.1 O `Canvas` em modo de gravação: retângulos, degradês, imagens (ícones guardados) e
+    glifos (os bitmaps que as fontes do Glove já guardam) viram uma lista de comandos; caminhos
+    (retângulos arredondados, traços) pintados pela CPU num pedaço pequeno e mandados como imagem.
+  - [ ] 27.5.2 EGL + OpenGL ES 3 no kit (Wayland): cada bloco ganha uma `wl_egl_window` na
+    subsuperfície dele; um atlas de glifos e de ícones em textura; três programas (retângulo
+    liso, degradê, imagem com cor).
+  - [ ] 27.5.3 Tocar a lista de comandos de um bloco pela placa (no lugar de pintar e enviar
+    pela `wl_shm`); sem GLES 3.0, o caminho de hoje.
+  - [ ] 27.5.4 Medir: rolar e digitar com os blocos pintados pela placa (meta: a pintura dos
+    blocos de ~1,5–3 ms para menos de 0,5 ms).
 - [ ] 27.6 Superfície dos apps pela placa: EGL (`wayland-egl`) no lugar do `wl_shm`, dano pela
   idade do buffer.
 - [ ] 27.7 Peças do compositor como cena da placa: menus, barra, títulos e painéis desenhados no
