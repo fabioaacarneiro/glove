@@ -77,3 +77,31 @@ etapa tira: a placa rolar os blocos sozinha.
 | window_drag | 14 | 0.27 / 0.33 / 0.33 | 0.51 / 0.65 | glove.TextEditor | 15 | 3.03 / 5.78 / 5.78 | 102169 |
 | viewer_zoom | 0 | 0.00 / 0.00 / 0.00 | 0.00 / 0.00 | glove.Viewer | 10 | 3.61 / 4.84 / 4.84 | 0 |
 | expose | 21 | 0.28 / 0.30 / 1.93 | 21.79 / 54.94 | — | | | |
+
+## Depois da etapa 27.4 (a placa rola os blocos)
+
+Os blocos viram subsuperfícies (`wl_subsurface` + `wp_viewporter`) embaixo da janela, que
+deixa um buraco transparente; rolar só muda a posição e o recorte deles, e o compositor monta pela
+placa. O app quase não pinta nem envia nada ao rolar (~400 px por quadro, a barra de rolagem):
+
+- Rolar o Arquivos: ~10,3 ms (linha de base) → ~2,6 ms por quadro.
+- Rolar o Editor: ~11,4 ms → ~2,9 ms por quadro.
+- O compositor passa a juntar mais peças (aqui ~2 ms por quadro, porque a placa da sessão oculta é
+  por software; numa placa de verdade isso é quase de graça).
+- `GLOVE_NO_GPU_LAYERS=1` volta a copiar os blocos para dentro da janela; o backend GTK (a
+  Jangada) continua copiando.
+
+### Auditoria 27.4: a placa rola os blocos (subsuperfícies)
+
+| Cenário | Compositor: quadros | preparar (CPU) média / p95 / pior ms | desenhar média / pior ms | App | quadros | pintar (CPU) média / p95 / pior ms | px por quadro |
+|---|---|---|---|---|---|---|---|
+| idle | 0 | 0.00 / 0.00 / 0.00 | 0.00 / 0.00 | — | | | |
+| dock_hover | 68 | 1.19 / 2.83 / 5.12 | 1.23 / 3.13 | — | | | |
+| menus | 7 | 4.38 / 8.76 / 8.76 | 1.74 / 2.07 | glove.Files | 1 | 1.81 / 1.81 / 1.81 | 0 |
+| files_scroll | 32 | 0.21 / 0.27 / 0.31 | 1.96 / 2.36 | glove.Files | 33 | 2.55 / 4.94 / 5.31 | 406 |
+| editor_scroll | 22 | 0.25 / 0.32 / 0.32 | 1.79 / 3.50 | glove.TextEditor | 23 | 2.91 / 4.32 / 4.65 | 1304 |
+|  |  |  |  | glove.Files | 1 | 1.49 / 1.49 / 1.49 | 0 |
+| editor_type | 5 | 1.00 / 3.37 / 3.37 | 0.69 / 1.30 | glove.TextEditor | 4 | 5.43 / 9.63 / 9.63 | 14382 |
+| window_drag | 16 | 0.30 / 0.37 / 0.37 | 0.66 / 0.83 | glove.TextEditor | 16 | 2.90 / 4.35 / 4.35 | 6386 |
+| viewer_zoom | 0 | 0.00 / 0.00 / 0.00 | 0.00 / 0.00 | glove.Viewer | 10 | 2.61 / 3.12 / 3.12 | 0 |
+| expose | 21 | 0.27 / 0.33 / 1.90 | 23.58 / 54.65 | — | | | |
