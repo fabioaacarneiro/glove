@@ -644,6 +644,10 @@ struct Files {
     list_sort: (usize, bool),
     /// Lista: pastas abertas no lugar (triângulo).
     expanded: std::collections::HashSet<PathBuf>,
+    /// The rows of the list view, ready (sorting 600 items and writing their dates on every
+    /// frame took most of the time of a frame): made again only when what decides them
+    /// changes (the listings, the order, the open folders, the options).
+    list_rows_cache: Option<(u64, Rc<(Vec<Entry>, Vec<TableRow>)>)>,
     /// Outros itens escolhidos (Ctrl/Shift e retângulo), além de `selected`.
     extra: Vec<PathBuf>,
     /// Retângulo elástico (ícones): onde começou.
@@ -708,6 +712,7 @@ impl Files {
             goto: None,
             list_sort: (0, true),
             expanded: std::collections::HashSet::new(),
+            list_rows_cache: None,
             extra: Vec::new(),
             band: None,
             notify_fd: unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) },
@@ -2132,23 +2137,34 @@ impl Files {
         }
     }
 
-    fn list_view(&mut self, ui: &mut Ui, area: Rect) {
-        let dir = self.current();
-        if let Err(e) = self.list(&dir) {
-            ui.fonts.draw(ui.c, &e, area.x + 10.0, area.y + 24.0, 12.0, false, rgba(150, 40, 40, 255));
-            return;
+
+    /// What decides the rows of the list view: the folder, the listings shown (each one is
+    /// made again when its folder changes), the order, the open folders and the options.
+    fn list_rows_key(&mut self, dir: &Path, searching: bool) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        // The day too: the dates say "Today" and "Yesterday".
+        let today = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() / 3600).unwrap_or(0);
+        (dir, self.list_sort, self.cfg.show_extensions, searching, today).hash(&mut h);
+        if let Ok(v) = self.list(dir) {
+            (Rc::as_ptr(&v) as usize).hash(&mut h);
         }
+        let mut open: Vec<&PathBuf> = self.expanded.iter().collect();
+        open.sort();
+        for p in open {
+            p.hash(&mut h);
+            if let Some((_, _, Ok(v))) = self.cache.get(p) {
+                (Rc::as_ptr(v) as usize).hash(&mut h);
+            }
+        }
+        h.finish()
+    }
+
+    /// The entries and the rows of the list view (sorted, with the open folders inside).
+    fn make_list_rows(&mut self, dir: &Path, searching: bool) -> (Vec<Entry>, Vec<TableRow>) {
         let mut flat = Vec::new();
-        self.list_rows(&dir, 0, &mut flat);
+        self.list_rows(dir, 0, &mut flat);
         let entries: Vec<Entry> = flat.iter().map(|(e, _)| e.clone()).collect();
-        // Nas buscas, a última coluna diz onde cada item está (como no Tiger).
-        let searching = smart::is_smart(&dir);
-        let cols = [
-            Column::new(tr!("Nome"), 0.45),
-            Column::new(tr!("Data de modificação"), 0.25),
-            Column::new(tr!("Tamanho"), 0.12).right(),
-            Column::new(if searching { tr!("Onde") } else { tr!("Tipo") }, 0.18),
-        ];
         let rows: Vec<TableRow> = flat
             .iter()
             .map(|(e, depth)| TableRow {
@@ -2164,13 +2180,40 @@ impl Files {
                 tint: label_color(e.label),
             })
             .collect();
+        (entries, rows)
+    }
+
+    fn list_view(&mut self, ui: &mut Ui, area: Rect) {
+        let dir = self.current();
+        if let Err(e) = self.list(&dir) {
+            ui.fonts.draw(ui.c, &e, area.x + 10.0, area.y + 24.0, 12.0, false, rgba(150, 40, 40, 255));
+            return;
+        }
+        // Nas buscas, a última coluna diz onde cada item está (como no Tiger).
+        let searching = smart::is_smart(&dir);
+        let key = self.list_rows_key(&dir, searching);
+        let ready = match &self.list_rows_cache {
+            Some((k, v)) if *k == key => v.clone(),
+            _ => {
+                let v = Rc::new(self.make_list_rows(&dir, searching));
+                self.list_rows_cache = Some((key, v.clone()));
+                v
+            }
+        };
+        let (entries, rows) = (&ready.0, &ready.1);
+        let cols = [
+            Column::new(tr!("Nome"), 0.45),
+            Column::new(tr!("Data de modificação"), 0.25),
+            Column::new(tr!("Tamanho"), 0.12).right(),
+            Column::new(if searching { tr!("Onde") } else { tr!("Tipo") }, 0.18),
+        ];
         let sel = self.selected.as_ref().and_then(|s| entries.iter().position(|e| &e.path == s));
         let mut state = TableState::sorted_by(self.list_sort.0, self.list_sort.1);
         state.scroll = *self.scroll.get(&dir).unwrap_or(&0.0);
         // O Arquivos não usa linhas alternadas (como o Finder).
         // As outras escolhidas (Ctrl/Shift + clique) também ficam destacadas.
         let also: Vec<usize> = self.extra.iter().filter_map(|p| entries.iter().position(|e| &e.path == p)).collect();
-        let r = ui.table(area, &cols, &rows, sel, &mut state, &TableStyle { row_h: ROW_H, px: 12.0, zebra: false, also });
+        let r = ui.table(area, &cols, rows, sel, &mut state, &TableStyle { row_h: ROW_H, px: 12.0, zebra: false, also });
         if let (Some(i), true) = (sel, std::mem::take(&mut self.reveal)) {
             state.reveal(i);
             ui.redraw = true;

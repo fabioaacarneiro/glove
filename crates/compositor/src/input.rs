@@ -439,6 +439,9 @@ impl Glove {
                 self.on_button(0x112, ButtonState::Pressed, t);
                 self.on_button(0x112, ButtonState::Released, t + 1);
             }
+            // Audit (tools/gpu-audit): "profmark NAME" starts a scenario, "profdump" logs its numbers.
+            Some("profmark") => crate::prof::mark(it.next().unwrap_or("?")),
+            Some("profdump") => crate::prof::dump(),
             // "keydown ctrl" / "keyup ctrl": a modifier held (for a click with it).
             Some(cmd @ ("keydown" | "keyup")) => {
                 let code = match it.next().unwrap_or("") {

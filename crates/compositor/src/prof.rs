@@ -19,6 +19,62 @@ struct Acc {
 
 thread_local! {
     static ACC: RefCell<Acc> = RefCell::new(Acc::default());
+    /// The audit (tools/gpu-audit): every frame since the last mark (prepare, build,
+    /// render), for the numbers of one scenario.
+    static MARK: RefCell<Option<(String, Instant, Vec<(Duration, Duration, Duration)>)>> = const { RefCell::new(None) };
+}
+
+/// Audit: a scenario starts (`profmark NAME` of the debug control).
+pub fn mark(name: &str) {
+    MARK.with(|m| *m.borrow_mut() = Some((name.to_string(), Instant::now(), Vec::new())));
+    tracing::info!("PROFMARK {name}");
+}
+
+/// Audit: the numbers of the scenario since the mark (`profdump`), in one line.
+pub fn dump() {
+    MARK.with(|m| {
+        let Some((name, since, frames)) = m.borrow_mut().take() else { return };
+        let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+        let stat = |mut v: Vec<f64>| -> (f64, f64, f64) {
+            if v.is_empty() {
+                return (0.0, 0.0, 0.0);
+            }
+            v.sort_by(|a, b| a.total_cmp(b));
+            let avg = v.iter().sum::<f64>() / v.len() as f64;
+            let p95 = v[((v.len() as f64 * 0.95).ceil() as usize).saturating_sub(1).min(v.len() - 1)];
+            (avg, p95, *v.last().unwrap())
+        };
+        let (pa, pp, pm) = stat(frames.iter().map(|f| ms(f.0)).collect());
+        let (ba, _, _) = stat(frames.iter().map(|f| ms(f.1)).collect());
+        let (ra, rp, rm) = stat(frames.iter().map(|f| ms(f.2)).collect());
+        let el = since.elapsed().as_secs_f64();
+        tracing::info!(
+            "PROFDUMP {name} frames={} fps={:.1} prep_avg={pa:.2} prep_p95={pp:.2} prep_max={pm:.2} build_avg={ba:.2} render_avg={ra:.2} render_p95={rp:.2} render_max={rm:.2}",
+            frames.len(),
+            frames.len() as f64 / el.max(0.001)
+        );
+    });
+}
+
+fn mark_frame(prep: Option<Duration>, build: Option<Duration>, render: Option<Duration>) {
+    MARK.with(|m| {
+        if let Some((_, _, v)) = m.borrow_mut().as_mut() {
+            match (prep, build, render) {
+                (Some(p), _, _) => v.push((p, Duration::ZERO, Duration::ZERO)),
+                (_, Some(b), _) => {
+                    if let Some(l) = v.last_mut() {
+                        l.1 += b;
+                    }
+                }
+                (_, _, Some(r)) => {
+                    if let Some(l) = v.last_mut() {
+                        l.2 += r;
+                    }
+                }
+                _ => {}
+            }
+        }
+    });
 }
 
 pub fn on() -> bool {
@@ -28,6 +84,7 @@ pub fn on() -> bool {
 
 /// Tempo de preparar o quadro (conta um quadro).
 pub fn prep(d: Duration) {
+    mark_frame(Some(d), None, None);
     ACC.with(|a| {
         let mut a = a.borrow_mut();
         a.frames += 1;
@@ -38,10 +95,12 @@ pub fn prep(d: Duration) {
 }
 
 pub fn build(d: Duration) {
+    mark_frame(None, Some(d), None);
     ACC.with(|a| a.borrow_mut().build += d);
 }
 
 pub fn render(d: Duration) {
+    mark_frame(None, None, Some(d));
     ACC.with(|a| {
         let mut a = a.borrow_mut();
         a.render += d;

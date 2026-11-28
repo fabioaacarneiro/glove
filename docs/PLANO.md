@@ -2042,3 +2042,56 @@ Terminal) entende os atalhos como num Mac, sem configurar app por app.
   exceções.
 - [ ] 26.6 Teste: conferir em GTK, Qt, Electron, Firefox, um app X11 e o Terminal, na sessão
   oculta.
+
+## Fase 27 — Tudo desenhado pela placa de vídeo (pedido de 28/11/2026; começado)
+
+Objetivo: o Glove é leve; agora precisa ser rápido. Tudo o que ele desenha passa a ser desenhado
+pela placa de vídeo, começando onde o ganho é maior e o uso é mais frequente. O desenho pelo
+processador fica como reserva automática para máquinas sem OpenGL ES 3.0 / OpenGL 3.3.
+
+Como é hoje: o compositor já monta a tela pela placa (smithay, GLES): janelas, animações, Exposé,
+Lâmpada Mágica. Mas as peças dele (Dock, barra de menu, menus, títulos, painéis) e todos os apps
+do kit glove-ui são pintados pelo processador (glove-paint `Canvas` sobre tiny-skia) e só depois
+viram imagem: textura no compositor, `wl_shm` nos apps.
+
+### Auditoria (a cada etapa)
+
+- `tools/gpu-audit/audit.sh [PASTA] [RÓTULO]`: os mesmos cenários numa sessão oculta (Xvfb + winit,
+  nada na tela de ninguém) com `GLOVE_PROF=1`: parado, passar o mouse no Dock, abrir menus,
+  rolar o Arquivos com 600 itens, rolar e digitar no Editor com um documento longo, arrastar uma
+  janela, zoom no Visualizador, Exposé. Sai uma tabela por cenário: o compositor (quadros,
+  preparar na CPU, desenhar: média, p95, pior) e cada app (pintar na CPU: média, p95, pior;
+  pixels pintados por quadro). `profmark`/`profdump` no controle de depuração marcam os cenários.
+- `docs/auditoria-gpu.md`: a tabela de cada etapa (antes e depois), com memória (RSS) e CPU
+  parado medidos também na máquina real (Intel UHD) quando der.
+- Critério de cada etapa: o p95 do cenário que ela ataca cai pelo menos pela metade, sem piorar
+  o parado nem a memória de forma notável. Sem isso, a etapa não fica.
+- Na sessão oculta a placa é por software (llvmpipe): os tempos de "desenhar" só se comparam
+  entre si; os de pintar na CPU são os que esta fase tira do processador.
+
+### Etapas (pela ordem de benefício × importância; reordenada pela auditoria de 28/11)
+
+A linha de base (`docs/auditoria-gpu.md`) mostrou que o caro é a rolagem nos apps (Arquivos,
+Editor), não o Dock. A ordem passou a ser esta:
+
+- [x] 27.1 Auditoria e linha de base: `tools/gpu-audit`, a primeira tabela e os cenários mais
+  caros.
+- [x] 27.2 Camada de rolagem retida em blocos no kit (`Ui::scroll_layer`): o conteúdo que rola
+  fica em blocos de 256 px já pintados; rolar copia o pedaço visível e pinta só o bloco que
+  entra. A tabela do kit (Arquivos, Preferências, Música, Correio…) usa. No Arquivos, as linhas
+  da lista ficam prontas (refeitas só quando a pasta, a ordem ou as opções mudam). Rolar o
+  Arquivos: ~10,3 → ~5,4 ms por quadro.
+- [ ] 27.3 A placa rola os blocos: cada bloco vira textura numa subsuperfície (`wl_subsurface` +
+  `wp_viewporter`) e rolar só muda a posição; o app não repinta nem reenvia a área.
+- [ ] 27.4 Editor: o cálculo do desenho a cada quadro (2–13 ms parado) e a rolagem com a
+  camada retida.
+- [ ] 27.5 Motor de pintura pela placa no glove-paint: o mesmo `Canvas` com um segundo motor
+  (OpenGL ES 3 por EGL), atlas de glifos das fontes do Glove, imagens como texturas. Os apps não
+  mudam.
+- [ ] 27.6 Superfície dos apps pela placa: EGL (`wayland-egl`) no lugar do `wl_shm`, dano pela
+  idade do buffer.
+- [ ] 27.7 Peças do compositor como cena da placa: menus (3–9 ms ao abrir), barra, títulos e
+  painéis desenhados no GLES do compositor; o Dock por último (já é barato).
+- [ ] 27.8 Reserva pela CPU: sem GLES 3.0, kit e compositor voltam sozinhos ao desenho pelo
+  processador; uma opção nas Preferências força a reserva.
+- [ ] 27.9 Medir na máquina real (memória por app, bateria, fluidez) e ajustar.
